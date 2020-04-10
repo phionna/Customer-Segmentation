@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[2]:
+# In[1]:
 
 
 import pandas as pd
@@ -11,55 +11,41 @@ import matplotlib.pyplot as plt
 
 # ## Import and Reshape Data
 
-# In[3]:
+# In[9]:
 
 
 df = pd.read_csv('transactions_n100000.csv')
 
 
-# In[4]:
+# In[10]:
 
 
 df.head()
 
 
-# In[5]:
+# In[11]:
 
 
 df.shape
 
 
-# In[6]:
+# In[12]:
 
 
+#Separately get data grouped by ticket_id with their order timestamps and location data, and the other with item names and counts, and merge them together
 grouped_df = df.groupby(by='ticket_id').first().drop(['item_name','item_count'],axis=1)
-
-
-# In[8]:
-
-
-grouped_df
-
-
-# In[9]:
-
-
 item_types = pd.pivot_table(df,index='ticket_id',columns='item_name',values='item_count').fillna(0)
-
-
-# In[140]:
-
 
 new_df = grouped_df.merge(item_types,left_on='ticket_id',right_on='ticket_id')
 
 
-# In[141]:
+# In[13]:
 
 
 new_df.head()
 
 
-# In[142]:
+# In[14]:
 
 
 new_df.shape
@@ -67,7 +53,7 @@ new_df.shape
 
 # ## Feature Engineering
 
-# In[143]:
+# In[15]:
 
 
 new_df['order_timestamp'] = pd.to_datetime(new_df['order_timestamp'])
@@ -75,13 +61,13 @@ new_df['hour'] = new_df['order_timestamp'].dt.hour
 new_df['day_of_week'] = new_df['order_timestamp'].dt.dayofweek
 
 
-# In[144]:
+# In[16]:
 
 
 new_df = new_df.drop(['lat','long','order_timestamp'],axis=1)
 
 
-# In[145]:
+# In[17]:
 
 
 #Based on Tableau Analytics:
@@ -121,26 +107,26 @@ def classify_time_of_day(time):
     return label
 
 
-# In[146]:
+# In[18]:
 
 
-#new_df['location_type'] = new_df.location.apply(classify_location)
+#new_df['location_type'] = new_df.location.apply(classify_location) decided not to use these labels as want to see if clustering algo picked it up for us
 new_df['week_day'] = new_df.day_of_week.apply(classify_day_of_week)
 new_df['time_of_day'] = new_df.hour.apply(classify_time_of_day)
 
 new_df = new_df.drop(['day_of_week','hour'],axis=1)
 
 
-# In[147]:
+# In[19]:
 
 
 new_df.head()
 
 
-# In[148]:
+# In[20]:
 
 
-#One Hot Encoding
+#One Hot Encoding using get_dummies
 
 list_of_cols = ['location','week_day','time_of_day']
 
@@ -151,19 +137,13 @@ for var in list_of_cols:
 new_df = new_df.drop(list_of_cols,axis=1)
 
 
-# In[149]:
+# In[21]:
 
 
 new_df.head()
 
 
-# In[150]:
-
-
-new_df.describe()
-
-
-# In[151]:
+# In[22]:
 
 
 #Ran the first time, found that weekday/weekend split not impt, so im removing it
@@ -173,7 +153,7 @@ new_df.drop(['weekday','weekend'],axis=1,inplace=True)
 
 # ## Train-Test Split and Standardization
 
-# In[152]:
+# In[23]:
 
 
 from sklearn import model_selection
@@ -181,53 +161,54 @@ from sklearn import model_selection
 train,test = model_selection.train_test_split(new_df, test_size=0.3, random_state = 0)
 
 
-# In[153]:
+# In[24]:
 
 
 from sklearn import preprocessing
 
 
-# In[154]:
+# In[25]:
 
+
+#Use Min-max Scaler to scale data
 
 Scaler = preprocessing.MinMaxScaler()
 train_scaled = Scaler.fit_transform(train)
 test_scaled = Scaler.transform(test)
 
-
-# In[155]:
-
-
 train_scaled = pd.DataFrame(train_scaled, columns = train.columns,index= train.index)
 test_scaled = pd.DataFrame(test_scaled,columns = test.columns,index= test.index)
 
 
-# In[180]:
+# In[26]:
 
 
 # Try with the standard scaler instead of Min-Max Scaler
 
 Std_Scale = preprocessing.StandardScaler()
 train_std_scaled = Std_Scale.fit_transform(train)
+test_std_scaled = Std_Scale.transform(test)
 
 train_std_scaled = pd.DataFrame(train_std_scaled, columns = train.columns,index= train.index)
+test_std_scaled = pd.DataFrame(test_std_scaled,columns = test.columns,index= test.index)
 
 
 # ## Clustering
 
-# In[157]:
+# In[27]:
 
 
 from sklearn.cluster import KMeans
 
 
-# In[181]:
+# In[28]:
 
 
-kmeans = KMeans(n_clusters=3, random_state=0).fit(train_std_scaled)
+#Cluster with min-max scaled data
+kmeans = KMeans(n_clusters=3, random_state=0).fit(train_scaled)
 
 
-# In[182]:
+# In[29]:
 
 
 columns = train_scaled.columns
@@ -236,28 +217,41 @@ centers = kmeans.cluster_centers_
 pd.DataFrame(data=centers,columns=columns)
 
 
-# In[183]:
+# In[30]:
 
 
+#Proportion of clusters on train data
 labels = pd.DataFrame(data= kmeans.labels_)
+print(labels[0].value_counts(normalize=True))
+
+
+# In[31]:
+
+
+#Cluster with normalized scaled data
+
+kmeans_std = KMeans(n_clusters=3, random_state=0).fit(train_std_scaled)
+
+labels = pd.DataFrame(data= kmeans_std.labels_)
 print(labels[0].value_counts(normalize=True))
 
 
 # ## Validation
 
-# In[176]:
+# In[32]:
 
 
+#plotting elbow graph, using normalized scaled data
 Sum_of_squared_distances = []
 K = range(1,10)
 
 for k in K:
     km = KMeans(n_clusters=k)
-    km = km.fit(train)
+    km = km.fit(train_std_scaled)
     Sum_of_squared_distances.append(km.inertia_)
 
 
-# In[177]:
+# In[33]:
 
 
 plt.plot(K, Sum_of_squared_distances, 'bx-')
@@ -267,70 +261,53 @@ plt.title('Elbow Method For Optimal k')
 plt.show()
 
 
-# In[178]:
+# In[34]:
 
 
-print(Sum_of_squared_distances)
-
-
-# In[184]:
-
-
-labels = pd.DataFrame(data= kmeans.predict(test_scaled))
+#Look at proportion of clusters on test data
+labels = pd.DataFrame(data= kmeans_std.predict(test_std_scaled))
 labels[0].value_counts(normalize=True)
 
 
 # ## Looking at the Mean Characteristics
 
-# In[166]:
+# In[35]:
 
 
+#Transform min-max scaled data back
 transformed = Scaler.inverse_transform(train_scaled)
 
 train_scaled_transformed = pd.DataFrame(transformed, columns = train.columns,index= train.index)
 
-
-# In[167]:
-
-
 #Putting Labels back into DF
 train_scaled_transformed['cluster_labels'] = kmeans.labels_
 
 
-# In[168]:
-
-
-train_scaled_transformed.head()
-
-
-# In[169]:
+# In[36]:
 
 
 train_scaled_transformed.groupby(by='cluster_labels').mean()
 
 
-# In[186]:
+# In[39]:
 
 
+#Transform normalized scaled data back
 transformed = Std_Scale.inverse_transform(train_std_scaled)
 
 train_scaled_transformed = pd.DataFrame(transformed, columns = train.columns,index= train.index)
 
-
-# In[187]:
-
-
 #Putting Labels back into DF
-train_scaled_transformed['cluster_labels'] = kmeans.labels_
+train_scaled_transformed['cluster_labels'] = kmeans_std.labels_
 
 
-# In[188]:
+# In[40]:
 
 
 train_scaled_transformed.groupby(by='cluster_labels').mean()
 
 
-# In[189]:
+# In[41]:
 
 
 #Both ways of standardizing yield quite similar results, maybe min-max is better in splitting the times of the day
